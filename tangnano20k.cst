@@ -1,0 +1,24 @@
+# clk 27 MHz
+IO_LOC "clk"    H11;
+IO_PORT "clk"   PULL_MODE=NONE;
+
+# S1 button (reset)
+IO_LOC "rst_n"  B8;
+IO_PORT "rst_n" PULL_MODE=UP;
+
+# S2 button
+IO_LOC "s2"     D9;
+IO_PORT "s2"    PULL_MODE=UP;
+
+# 6 LED
+IO_LOC "led[0]" L15;
+IO_LOC "led[1]" L14;
+IO_LOC "led[2]" N14;
+IO_LOC "led[3]" N16;
+IO_LOC "led[4]" M15;
+IO_LOC "led[5]" M16;
+
+# RGB LED (anot)
+IO_LOC "rgb_r"  M11;
+IO_LOC "rgb_g"  K14;
+IO_LOC "rgb_b"  J11;
