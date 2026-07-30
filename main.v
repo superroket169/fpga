@@ -43,7 +43,7 @@ module data_memory (
     input  wire [31:0] write_data,
     output wire [31:0] read_data
 );
-    reg [31:0] mem [0:1023]; // 4KB
+    (* ram_style = "block" *) reg [31:0] mem [0:4095]; // 16KB
 
     integer i;
     initial begin
@@ -68,7 +68,8 @@ module register_file (
     input  wire [4:0]  rd_addr,
     input  wire [31:0] rd_data,
     output wire [31:0] rs1_data,
-    output wire [31:0] rs2_data
+    output wire [31:0] rs2_data,
+    output wire [31:0] reg10_data
 );
     reg [31:0] regs [0:31];
 
@@ -88,6 +89,9 @@ module register_file (
                        (we && rd_addr == rs1_addr) ? rd_data : regs[rs1_addr];
     assign rs2_data = (rs2_addr == 5'b0) ? 32'b0 :
                        (we && rd_addr == rs2_addr) ? rd_data : regs[rs2_addr];
+
+    assign reg10_data = regs[10];
+
 endmodule
 
 
@@ -95,7 +99,7 @@ module instruction_memory (
     input  wire [31:0] addr,
     output wire [31:0] instr
 );
-    reg [31:0] mem [0:255];   // 256 word = 1KB, şimdilik salt okunur (write port sonra eklenecek)
+    (* ram_style = "block" *) reg [31:0] mem [0:255];   // 256 word = 1KB, şimdilik salt okunur (write port sonra eklenecek)
 
     // here is was testing for commands while debuging
     /* 
@@ -286,7 +290,8 @@ endmodule
 
 module cpu_core (
     input wire clk,
-    input wire rst
+    input wire rst,
+    output wire [5:0]  led
 );
     // ============================================================
     //                         ALL WIRES
@@ -321,6 +326,8 @@ module cpu_core (
     wire        pc_branch_or_jump;
     wire [31:0] pc_next_target;
 
+    wire [31:0] reg10_val;
+
     // ============================================================
     //                    MODUL CONNECTIONS
     // ============================================================
@@ -343,12 +350,13 @@ module cpu_core (
         .we(reg_write),
         .rs1_addr(rs1), .rs2_addr(rs2), .rd_addr(rd),
         .rd_data(write_back_data),
-        .rs1_data(rs1_data), .rs2_data(rs2_data)
+        .rs1_data(rs1_data), .rs2_data(rs2_data),
+        .reg10_data(reg10_val)
     );
 
-    assign imm_selected = (opcode == 7'b0110111 || opcode == 7'b0010111) ? imm_u :
-                      imm_sel ? imm_s : imm_i;
-
+    assign imm_selected = 
+        (opcode == 7'b0110111 || opcode == 7'b0010111) ? imm_u :
+        imm_sel ? imm_s : imm_i;
 
     assign alu_b = alu_src ? imm_selected : rs2_data;
 
@@ -401,8 +409,8 @@ module cpu_core (
     // ============================================================
 
     assign write_back_data =
-        mem_read              ? mem_read_data :
-        jump                  ? (pc + 4) :
+        mem_read               ? mem_read_data :
+        jump                   ? (pc + 4) :
         (opcode == 7'b0110111) ? imm_u :          // LUI
         alu_result;
 
@@ -421,5 +429,8 @@ module cpu_core (
         .addr(pc),
         .instr(instr)
     );
+
+    // ================ LED TRIAL ====================
+    assign led = reg10_val[5:0];   // x10’un alt 6 biti
 
 endmodule
