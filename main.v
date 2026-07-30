@@ -434,3 +434,17 @@ module cpu_core (
     assign led = reg10_val[5:0];   // x10’un alt 6 biti
 
 endmodule
+
+module top (
+    input  wire       clk,
+    input  wire       rst_n,      // S1 button
+    output wire [5:0] led         // 6 LED
+);
+    wire rst = ~rst_n;
+
+    cpu_core u_cpu (
+        .clk(clk),
+        .rst(rst),
+        .led(led)
+    );
+endmodule
