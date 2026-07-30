@@ -115,6 +115,33 @@ module instruction_memory (
     end
     */
 
+    // led loop for trial:
+    initial begin
+        // x10 = 0 (LED)
+        mem[0] = 32'h00000513;        // addi x10, x0, 0
+        // x5 = 0x3F (maske)
+        mem[1] = 32'h03F00293;        // addi x5, x0, 63
+
+        // loop:
+        // sw x10, 0(x0)  yok! çünkü belleğe yazmıyoruz, direkt register kullanıyoruz.
+        // addi x10, x10, 1
+        mem[2] = 32'h00150513;        // addi x10, x10, 1
+        // and x10, x10, x5
+        mem[3] = 32'h00557533;        // and x10, x10, x5
+
+        // Gecikme döngüsü (x6 ile say)
+        // addi x6, x0, 0x100000      (yaklaşık 1 milyon tur)
+        mem[4] = 32'h00100337;        // lui x6, 0x100   -> x6 = 0x100000
+        // delay:
+        // addi x6, x6, -1
+        mem[5] = 32'hFFF30313;        // addi x6, x6, -1
+        // bne x6, x0, delay
+        mem[6] = 32'hFE031CE3;        // bne x6, x0, -8 (mem[5])
+
+        // j loop
+        mem[7] = 32'hFD1FF06F;        // jal x0, -48 (mem[2]'ye dön)
+    end 
+
     assign instr = mem[addr[9:2]];
 endmodule
 
@@ -433,6 +460,34 @@ module cpu_core (
     // ================ LED TRIAL ====================
     assign led = reg10_val[5:0];   // x10’un alt 6 biti
 
+endmodule
+
+module control_unit (
+    input  wire clk,
+    input  wire rst,
+    input  wire memory_ready,   // this is for ram delays
+    output reg [2:0] state
+);
+    localparam FETCH     = 3'd0;
+    localparam DECODE    = 3'd1;
+    localparam EXECUTE   = 3'd2;
+    localparam MEMORY    = 3'd3;
+    localparam WRITEBACK = 3'd4;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            state <= FETCH;
+        end else begin
+            case (state)
+                FETCH:     state <= memory_ready ? DECODE    : FETCH;
+                DECODE:    state <= EXECUTE;
+                EXECUTE:   state <= MEMORY;
+                MEMORY:    state <= memory_ready ? WRITEBACK : MEMORY;
+                WRITEBACK: state <= FETCH;
+                default:   state <= FETCH;
+            endcase
+        end
+    end
 endmodule
 
 module top (
