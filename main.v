@@ -36,27 +36,24 @@ module alu (
 endmodule
 
 
-module data_memory (
+module unified_memory (
     input  wire        clk,
     input  wire        we,
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
-    output wire [31:0] read_data
+    output reg  [31:0] read_data
 );
-    (* ram_style = "block" *) reg [31:0] mem [0:4095]; // 16KB
+    (* ram_style = "block" *) reg [31:0] mem [0:4095]; // 16KB, komut + veri
 
-    integer i;
-    initial begin
-        for (i = 0; i < 1024; i = i + 1)
-            mem[i] = 0;
-    end
+    // integer i;
+    // initial begin
+    // end
 
     always @(posedge clk) begin
         if (we)
-            mem[addr[11:2]] <= write_data;
+            mem[addr[13:2]] <= write_data;
+        read_data <= mem[addr[13:2]];
     end
-
-    assign read_data = mem[addr[11:2]];
 endmodule
 
 
@@ -84,82 +81,59 @@ module register_file (
             regs[rd_addr] <= rd_data;
     end
 
-    // write-first
-    assign rs1_data = (rs1_addr == 5'b0) ? 32'b0 :
-                       (we && rd_addr == rs1_addr) ? rd_data : regs[rs1_addr];
-    assign rs2_data = (rs2_addr == 5'b0) ? 32'b0 :
-                       (we && rd_addr == rs2_addr) ? rd_data : regs[rs2_addr];
+    assign rs1_data = (rs1_addr == 5'b0) ? 32'b0 : regs[rs1_addr];
+    assign rs2_data = (rs2_addr == 5'b0) ? 32'b0 : regs[rs2_addr];
 
     assign reg10_data = regs[10];
-
-endmodule
-
-
-module instruction_memory (
-    input  wire [31:0] addr,
-    output wire [31:0] instr
-);
-    (* ram_style = "block" *) reg [31:0] mem [0:255];   // 256 word = 1KB, şimdilik salt okunur (write port sonra eklenecek)
-
-    // here is was testing for commands while debuging
-    /* 
-    initial begin
-        mem[0] = 
-        mem[1] = 
-        mem[2] = 
-        mem[3] = 
-        mem[4] = 
-        mem[5] = 
-        mem[6] = 
-        mem[7] = 
-    end
-    */
-
-    // led loop for trial:
-    initial begin
-        // x10 = 0 (LED)
-        mem[0] = 32'h00000513;        // addi x10, x0, 0
-        // x5 = 0x3F (maske)
-        mem[1] = 32'h03F00293;        // addi x5, x0, 63
-
-        // loop:
-        // sw x10, 0(x0)  yok! çünkü belleğe yazmıyoruz, direkt register kullanıyoruz.
-        // addi x10, x10, 1
-        mem[2] = 32'h00150513;        // addi x10, x10, 1
-        // and x10, x10, x5
-        mem[3] = 32'h00557533;        // and x10, x10, x5
-
-        // Gecikme döngüsü (x6 ile say)
-        // addi x6, x0, 0x100000      (yaklaşık 1 milyon tur)
-        mem[4] = 32'h00100337;        // lui x6, 0x100   -> x6 = 0x100000
-        // delay:
-        // addi x6, x6, -1
-        mem[5] = 32'hFFF30313;        // addi x6, x6, -1
-        // bne x6, x0, delay
-        mem[6] = 32'hFE031CE3;        // bne x6, x0, -8 (mem[5])
-
-        // j loop
-        mem[7] = 32'hFD1FF06F;        // jal x0, -48 (mem[2]'ye dön)
-    end 
-
-    assign instr = mem[addr[9:2]];
 endmodule
 
 
 module pc_reg (
     input  wire        clk,
     input  wire        rst,
+    input  wire        en,
     input  wire        branch_taken,
     input  wire [31:0] branch_target,
     output reg  [31:0] pc
 );
-    always @(posedge clk) begin
+    always @(posedge clk or posedge rst) begin
         if (rst)
             pc <= 32'b0;
-        else if (branch_taken)
-            pc <= branch_target;
-        else
-            pc <= pc + 4;
+        else if (en) begin
+            if (branch_taken)
+                pc <= branch_target;
+            else
+                pc <= pc + 4;
+        end
+    end
+endmodule
+
+
+module control_unit (
+    input  wire        clk,
+    input  wire        rst,
+    input  wire        memory_ready,  // BRAM için hep 1, SDRAM eklenince gerçek sinyale bağlanacak çünkü gecikme falan var protokolden kaynaklı
+    output reg  [2:0]  state
+);
+    localparam FETCH     = 3'd0;
+    localparam DECODE    = 3'd1;
+    localparam EXECUTE   = 3'd2;
+    localparam MEMORY    = 3'd3;
+    localparam WRITEBACK = 3'd4;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            state <= FETCH;
+        end else begin
+            case (state)
+                FETCH:     state <= memory_ready ? DECODE    : FETCH;
+                DECODE:    state <= EXECUTE;
+                EXECUTE:   state <= MEMORY;
+                MEMORY:    state <= memory_ready ? WRITEBACK : MEMORY;
+                WRITEBACK: state <= FETCH;
+                default:   state <= FETCH;
+            endcase
+        end
     end
 endmodule
 
@@ -187,7 +161,6 @@ module decoder (
     output reg         jump,
     output reg         jalr
 );
-    // --- instr parsing ---
     assign opcode = instr[6:0];
     assign rd     = instr[11:7];
     assign funct3 = instr[14:12];
@@ -195,7 +168,6 @@ module decoder (
     assign rs2    = instr[24:20];
     assign funct7 = instr[31:25];
 
-    // --- immediate ---
     assign imm_i = {{20{instr[31]}}, instr[31:20]};
     assign imm_s = {{20{instr[31]}}, instr[31:25], instr[11:7]};
     assign imm_b = {{19{instr[31]}}, instr[31], instr[7], instr[30:25], instr[11:8], 1'b0};
@@ -213,7 +185,6 @@ module decoder (
     localparam JALR       = 7'b1100111;
 
     always @(*) begin
-        // varsayılanlar
         alu_op    = 4'b0000;
         mem_read  = 1'b0;
         mem_write = 1'b0;
@@ -275,12 +246,12 @@ module decoder (
                 branch  = 1'b1;
                 alu_src = 1'b0;
                 case (funct3)
-                    3'b000: alu_op = 4'b0001; // beq
-                    3'b001: alu_op = 4'b0001; // bne
-                    3'b100: alu_op = 4'b1000; // blt
-                    3'b101: alu_op = 4'b1000; // bge
-                    3'b110: alu_op = 4'b1001; // bltu
-                    3'b111: alu_op = 4'b1001; // bgeu
+                    3'b000: alu_op = 4'b0001;
+                    3'b001: alu_op = 4'b0001;
+                    3'b100: alu_op = 4'b1000;
+                    3'b101: alu_op = 4'b1000;
+                    3'b110: alu_op = 4'b1001;
+                    3'b111: alu_op = 4'b1001;
                     default: alu_op = 4'b0000;
                 endcase
             end
@@ -316,15 +287,22 @@ endmodule
 
 
 module cpu_core (
-    input wire clk,
-    input wire rst,
+    input  wire        clk,
+    input  wire        rst,
     output wire [5:0]  led
 );
     // ============================================================
     //                         ALL WIRES
     // ============================================================
+    wire [2:0]  state;
+    localparam FETCH     = 3'd0;
+    localparam DECODE    = 3'd1;
+    localparam EXECUTE   = 3'd2;
+    localparam MEMORY    = 3'd3;
+    localparam WRITEBACK = 3'd4;
+
     wire [31:0] pc;
-    wire [31:0] instr;
+    reg  [31:0] IR;
 
     wire [4:0]  rs1, rs2, rd;
     wire [2:0]  funct3;
@@ -339,28 +317,49 @@ module cpu_core (
 
     wire [31:0] imm_selected;
     wire [31:0] alu_b;
+    wire [31:0] alu_a;
 
     wire [31:0] alu_result;
     wire        zero_flag;
 
-    wire [31:0] mem_read_data;
+    wire [31:0] mem_addr;
+    wire        mem_we;
+    wire [31:0] mem_data_out;
 
-    wire        branch_condition_met_w;
+    reg         branch_condition_met;
     wire        branch_taken_signal;
     wire [31:0] branch_target_signal;
 
     wire [31:0] jump_target;
     wire        pc_branch_or_jump;
     wire [31:0] pc_next_target;
+    wire        pc_en;
 
     wire [31:0] reg10_val;
+    wire        regfile_we;
 
     // ============================================================
-    //                    MODUL CONNECTIONS
+    //                    CONTROL UNIT
     // ============================================================
+    control_unit my_ctrl (
+        .clk(clk), .rst(rst),
+        .memory_ready(1'b1),
+        .state(state)
+    );
 
+    // ============================================================
+    //          INSTRUCTION REGISTER (IR)
+    // ============================================================
+    always @(posedge clk) begin
+        if (state == DECODE)
+            IR <= mem_data_out;
+    end
+
+    // ============================================================
+    //                       DECODER
+    // ============================================================
     decoder my_decoder (
-        .instr(instr),
+        .instr(IR),
         .rs1(rs1), .rs2(rs2), .rd(rd),
         .funct3(funct3), .funct7(funct7), .opcode(opcode),
         .imm_i(imm_i), .imm_s(imm_s), .imm_b(imm_b),
@@ -372,22 +371,29 @@ module cpu_core (
         .jump(jump), .jalr(jalr)
     );
 
+    // ============================================================
+    //                    REGISTER FILE
+    // ============================================================
+    assign regfile_we = (state == WRITEBACK) && reg_write;
+
     register_file my_regs (
         .clk(clk),
-        .we(reg_write),
+        .we(regfile_we),
         .rs1_addr(rs1), .rs2_addr(rs2), .rd_addr(rd),
         .rd_data(write_back_data),
         .rs1_data(rs1_data), .rs2_data(rs2_data),
         .reg10_data(reg10_val)
     );
 
-    assign imm_selected = 
+    // ============================================================
+    //                          ALU
+    // ============================================================
+    assign imm_selected =
         (opcode == 7'b0110111 || opcode == 7'b0010111) ? imm_u :
         imm_sel ? imm_s : imm_i;
 
     assign alu_b = alu_src ? imm_selected : rs2_data;
-
-    wire [31:0] alu_a = (opcode == 7'b0010111) ? pc : rs1_data;   // AUIPC opcode: 0010111
+    assign alu_a = (opcode == 7'b0010111) ? pc : rs1_data; // AUIPC: pc + imm_u
 
     alu my_alu (
         .a(alu_a), .b(alu_b),
@@ -395,19 +401,23 @@ module cpu_core (
         .result(alu_result), .zero(zero_flag)
     );
 
-    data_memory my_dmem (
+    // ============================================================
+    //                    UNIFIED MEMORY
+    // ============================================================
+    assign mem_addr = (state == FETCH) ? pc : alu_result;
+    assign mem_we   = (state == MEMORY) && mem_write;
+
+    unified_memory my_mem (
         .clk(clk),
-        .we(mem_write),
-        .addr(alu_result),
+        .we(mem_we),
+        .addr(mem_addr),
         .write_data(rs2_data),
-        .read_data(mem_read_data)
+        .read_data(mem_data_out)
     );
 
     // ============================================================
-    //                          BRANCH
+    //                    BRANCH KARARI
     // ============================================================
-    
-    reg branch_condition_met;
     always @(*) begin
         case (funct3)
             3'b000: branch_condition_met = zero_flag;
@@ -420,75 +430,43 @@ module cpu_core (
         endcase
     end
 
-    assign branch_taken_signal   = branch && branch_condition_met;
-    assign branch_target_signal  = pc + imm_b;
+    assign branch_taken_signal  = branch && branch_condition_met;
+    assign branch_target_signal = pc + imm_b;
 
     // ============================================================
-    //                  JUMP TARGET CHOSING
+    //                    JUMP HEDEFİ
     // ============================================================
-    
-    assign jump_target = jalr ? ((rs1_data + imm_i) & ~32'b1) : (pc + imm_j);
+    assign jump_target      = jalr ? ((rs1_data + imm_i) & ~32'b1) : (pc + imm_j);
     assign pc_branch_or_jump = branch_taken_signal || jump;
-    assign pc_next_target = jump ? jump_target : branch_target_signal;
+    assign pc_next_target    = jump ? jump_target : branch_target_signal;
 
     // ============================================================
-    //                   WRITE-BACK CHOSING
+    //                    WRITE-BACK SEÇİMİ
     // ============================================================
-
     assign write_back_data =
-        mem_read               ? mem_read_data :
+        mem_read               ? mem_data_out :
         jump                   ? (pc + 4) :
-        (opcode == 7'b0110111) ? imm_u :          // LUI
+        (opcode == 7'b0110111) ? imm_u :
         alu_result;
 
     // ============================================================
-    //                  PC and INSTRUCTION MEMORY
+    //                    PC GÜNCELLEMESİ
     // ============================================================
+    assign pc_en = (state == WRITEBACK);
 
     pc_reg my_pc (
         .clk(clk), .rst(rst),
+        .en(pc_en),
         .branch_taken(pc_branch_or_jump),
         .branch_target(pc_next_target),
         .pc(pc)
     );
 
-    instruction_memory my_imem (
-        .addr(pc),
-        .instr(instr)
-    );
-
     // ================ LED TRIAL ====================
-    assign led = reg10_val[5:0];   // x10’un alt 6 biti
+    assign led = reg10_val[5:0];
 
 endmodule
 
-module control_unit (
-    input  wire clk,
-    input  wire rst,
-    input  wire memory_ready,   // this is for ram delays
-    output reg [2:0] state
-);
-    localparam FETCH     = 3'd0;
-    localparam DECODE    = 3'd1;
-    localparam EXECUTE   = 3'd2;
-    localparam MEMORY    = 3'd3;
-    localparam WRITEBACK = 3'd4;
-
-    always @(posedge clk) begin
-        if (rst) begin
-            state <= FETCH;
-        end else begin
-            case (state)
-                FETCH:     state <= memory_ready ? DECODE    : FETCH;
-                DECODE:    state <= EXECUTE;
-                EXECUTE:   state <= MEMORY;
-                MEMORY:    state <= memory_ready ? WRITEBACK : MEMORY;
-                WRITEBACK: state <= FETCH;
-                default:   state <= FETCH;
-            endcase
-        end
-    end
-endmodule
 
 module top (
     input  wire       clk,
