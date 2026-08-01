@@ -1,0 +1,8 @@
+build/
+*.fs
+*.json
+!*.pnr.json.example
+abc.history
+
+*.vcd
+*.vvp
