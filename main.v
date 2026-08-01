@@ -45,9 +45,9 @@ module unified_memory (
 );
     (* ram_style = "block" *) reg [31:0] mem [0:4095]; // 16KB, komut + veri
 
-    // integer i;
-    // initial begin
-    // end
+    initial begin
+        $readmemh("prog.hex", mem);
+    end
 
     always @(posedge clk) begin
         if (we)
@@ -463,7 +463,7 @@ module cpu_core (
     );
 
     // ================ LED TRIAL ====================
-    assign led = reg10_val[5:0];
+    assign led = ~reg10_val[5:0];
 
 endmodule
 
@@ -473,7 +473,7 @@ module top (
     input  wire       rst_n,      // S1 button
     output wire [5:0] led         // 6 LED
 );
-    wire rst = ~rst_n;
+    wire rst = rst_n; // NOTE: S1 butonu bu kartta ters calisiyor, ~rst_n degil rst_n dogru polarite
 
     cpu_core u_cpu (
         .clk(clk),
