@@ -35,6 +35,76 @@ module alu (
     assign zero = (result == 32'b0);
 endmodule
 
+module mem_decoder (
+    input  wire        clk,
+    input  wire        we,
+    input  wire [31:0] addr,
+    input  wire [31:0] write_data,
+    output reg  [31:0] read_data,
+    output wire [5:0]  led,
+    input  wire        button
+);
+    wire [3:0] region = addr[31:28];
+
+    wire        bram_sel = (region == 4'h0);
+    wire        gpio_sel = (region == 4'h1);
+    // flash_sel, sd_sel, sdram_sel...
+
+    wire [31:0] bram_read_data;
+    wire [31:0] gpio_read_data;
+
+    unified_memory u_bram (
+        .clk(clk),
+        .we(we && bram_sel),
+        .addr(addr),
+        .write_data(write_data),
+        .read_data(bram_read_data)
+    );
+
+    gpio_ctrl u_gpio (
+        .clk(clk),
+        .we(we && gpio_sel),
+        .addr(addr),
+        .write_data(write_data),
+        .read_data(gpio_read_data),
+        .led(led),
+        .button(button)
+    );
+
+    always @(posedge clk) begin
+        if (bram_sel) read_data <= bram_read_data;
+        else if (gpio_sel) read_data <= gpio_read_data;
+        else read_data <= 32'hDEAD_BEEF; // debug: undifened
+    end
+endmodule
+
+module gpio_ctrl (
+    input  wire        clk,
+    input  wire        we,
+    input  wire [31:0] addr,
+    input  wire [31:0] write_data,
+    output reg  [31:0] read_data,
+    output wire [5:0]  led,
+    input  wire        button
+);
+    reg [5:0] led_reg;
+
+    always @(posedge clk) begin
+        if (we && addr[7:0] == 8'h00)
+            led_reg <= write_data[5:0];
+    end
+
+    always @(posedge clk) begin
+        if (addr[7:0] == 8'h00)
+            read_data <= {26'b0, led_reg};
+        else if (addr[7:0] == 8'h04)
+            read_data <= {31'b0, button};
+        else
+            read_data <= 32'b0;
+    end
+
+    assign led = ~led_reg; // active-low
+endmodule
 
 module unified_memory (
     input  wire        clk,
@@ -65,8 +135,7 @@ module register_file (
     input  wire [4:0]  rd_addr,
     input  wire [31:0] rd_data,
     output wire [31:0] rs1_data,
-    output wire [31:0] rs2_data,
-    output wire [31:0] reg10_data
+    output wire [31:0] rs2_data
 );
     reg [31:0] regs [0:31];
 
@@ -83,8 +152,6 @@ module register_file (
 
     assign rs1_data = (rs1_addr == 5'b0) ? 32'b0 : regs[rs1_addr];
     assign rs2_data = (rs2_addr == 5'b0) ? 32'b0 : regs[rs2_addr];
-
-    assign reg10_data = regs[10];
 endmodule
 
 
@@ -289,7 +356,8 @@ endmodule
 module cpu_core (
     input  wire        clk,
     input  wire        rst,
-    output wire [5:0]  led
+    output wire [5:0]  led,
+    input  wire        button
 );
     // ============================================================
     //                         ALL WIRES
@@ -335,7 +403,6 @@ module cpu_core (
     wire [31:0] pc_next_target;
     wire        pc_en;
 
-    wire [31:0] reg10_val;
     wire        regfile_we;
 
     // ============================================================
@@ -381,8 +448,7 @@ module cpu_core (
         .we(regfile_we),
         .rs1_addr(rs1), .rs2_addr(rs2), .rd_addr(rd),
         .rd_data(write_back_data),
-        .rs1_data(rs1_data), .rs2_data(rs2_data),
-        .reg10_data(reg10_val)
+        .rs1_data(rs1_data), .rs2_data(rs2_data)
     );
 
     // ============================================================
@@ -407,12 +473,14 @@ module cpu_core (
     assign mem_addr = (state == FETCH) ? pc : alu_result;
     assign mem_we   = (state == MEMORY) && mem_write;
 
-    unified_memory my_mem (
+    mem_decoder my_mem (
         .clk(clk),
         .we(mem_we),
         .addr(mem_addr),
         .write_data(rs2_data),
-        .read_data(mem_data_out)
+        .read_data(mem_data_out),
+        .led(led),
+        .button(button)
     );
 
     // ============================================================
@@ -461,16 +529,13 @@ module cpu_core (
         .branch_target(pc_next_target),
         .pc(pc)
     );
-
-    // ================ LED TRIAL ====================
-    assign led = ~reg10_val[5:0];
-
 endmodule
 
 
 module top (
     input  wire       clk,
     input  wire       rst_n,      // S1 button
+    input  wire       button,     // S2 button
     output wire [5:0] led         // 6 LED
 );
     wire rst = rst_n; // NOTE: S1 butonu bu kartta ters calisiyor, ~rst_n degil rst_n dogru polarite
@@ -478,6 +543,7 @@ module top (
     cpu_core u_cpu (
         .clk(clk),
         .rst(rst),
-        .led(led)
+        .led(led),
+        .button(button)
     );
 endmodule
