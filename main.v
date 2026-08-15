@@ -38,6 +38,7 @@ endmodule
 module mem_decoder (
     input  wire        clk,
     input  wire        we,
+    input  wire [3:0]  wstrb,
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
     output wire [31:0] read_data,
@@ -56,6 +57,7 @@ module mem_decoder (
     unified_memory u_bram (
         .clk(clk),
         .we(we && bram_sel),
+        .wstrb(wstrb),
         .addr(addr),
         .write_data(write_data),
         .read_data(bram_read_data)
@@ -105,6 +107,7 @@ endmodule
 module unified_memory (
     input  wire        clk,
     input  wire        we,
+    input  wire [3:0]  wstrb,      // byte-lane write enable: for SB/SH/SW
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
     output reg  [31:0] read_data
@@ -116,8 +119,12 @@ module unified_memory (
     end
 
     always @(posedge clk) begin
-        if (we)
-            mem[addr[13:2]] <= write_data;
+        if (we) begin
+            if (wstrb[0]) mem[addr[13:2]][7:0]   <= write_data[7:0];
+            if (wstrb[1]) mem[addr[13:2]][15:8]  <= write_data[15:8];
+            if (wstrb[2]) mem[addr[13:2]][23:16] <= write_data[23:16];
+            if (wstrb[3]) mem[addr[13:2]][31:24] <= write_data[31:24];
+        end
         read_data <= mem[addr[13:2]];
     end
 endmodule
@@ -390,6 +397,14 @@ module cpu_core (
     wire        mem_we;
     wire [31:0] mem_data_out;
 
+    wire [1:0]  mem_byte_off;
+    wire [3:0]  mem_wstrb_pattern;
+    wire [31:0] mem_store_data;
+    wire [3:0]  mem_wstrb;
+    wire [7:0]  mem_load_byte;
+    wire [15:0] mem_load_half;
+    wire [31:0] mem_load_data;
+
     reg         branch_condition_met;
     wire        branch_taken_signal;
     wire [31:0] branch_target_signal;
@@ -469,11 +484,38 @@ module cpu_core (
     assign mem_addr = (state == MEMORY || state == WRITEBACK) ? alu_result : pc;
     assign mem_we   = (state == MEMORY) && mem_write;
 
+    // ---- STORE: SB/SH/SW byte-lane ----
+    assign mem_byte_off = mem_addr[1:0];
+
+    assign mem_wstrb_pattern =
+        (funct3 == 3'b000) ? (4'b0001 << mem_byte_off)             : // SB
+        (funct3 == 3'b001) ? (mem_byte_off[1] ? 4'b1100 : 4'b0011) : // SH
+                              4'b1111;                               // SW
+
+    assign mem_store_data =
+        (funct3 == 3'b000) ? {4{rs2_data[7:0]}}  :
+        (funct3 == 3'b001) ? {2{rs2_data[15:0]}} :
+                              rs2_data;
+
+    assign mem_wstrb = mem_we ? mem_wstrb_pattern : 4'b0000;
+
+    // ---- LOAD: byte/halfword + sign/zero-extend ----
+    assign mem_load_byte = mem_data_out >> (mem_byte_off * 8);
+    assign mem_load_half = mem_byte_off[1] ? mem_data_out[31:16] : mem_data_out[15:0];
+
+    assign mem_load_data =
+        (funct3 == 3'b000) ? {{24{mem_load_byte[7]}},  mem_load_byte}  : // LB
+        (funct3 == 3'b001) ? {{16{mem_load_half[15]}}, mem_load_half}  : // LH
+        (funct3 == 3'b100) ? {24'b0, mem_load_byte}                    : // LBU
+        (funct3 == 3'b101) ? {16'b0, mem_load_half}                    : // LHU
+                              mem_data_out;                              // LW
+
     mem_decoder my_mem (
         .clk(clk),
         .we(mem_we),
+        .wstrb(mem_wstrb),
         .addr(mem_addr),
-        .write_data(rs2_data),
+        .write_data(mem_store_data),
         .read_data(mem_data_out),
         .led(led),
         .button(button)
@@ -508,7 +550,7 @@ module cpu_core (
     //                    WRITE-BACK SEÇİMİ
     // ============================================================
     assign write_back_data =
-        mem_read               ? mem_data_out :
+        mem_read               ? mem_load_data :
         jump                   ? (pc + 4) :
         (opcode == 7'b0110111) ? imm_u :
         alu_result;
