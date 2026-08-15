@@ -40,7 +40,7 @@ module mem_decoder (
     input  wire        we,
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
-    output reg  [31:0] read_data,
+    output wire [31:0] read_data,
     output wire [5:0]  led,
     input  wire        button
 );
@@ -71,11 +71,7 @@ module mem_decoder (
         .button(button)
     );
 
-    always @(posedge clk) begin
-        if (bram_sel) read_data <= bram_read_data;
-        else if (gpio_sel) read_data <= gpio_read_data;
-        else read_data <= 32'hDEAD_BEEF; // debug: undifened
-    end
+    assign read_data = gpio_sel ? gpio_read_data : bram_read_data;
 endmodule
 
 module gpio_ctrl (
@@ -470,7 +466,7 @@ module cpu_core (
     // ============================================================
     //                    UNIFIED MEMORY
     // ============================================================
-    assign mem_addr = (state == FETCH) ? pc : alu_result;
+    assign mem_addr = (state == MEMORY || state == WRITEBACK) ? alu_result : pc;
     assign mem_we   = (state == MEMORY) && mem_write;
 
     mem_decoder my_mem (
