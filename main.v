@@ -182,7 +182,8 @@ endmodule
 module control_unit (
     input  wire        clk,
     input  wire        rst,
-    input  wire        memory_ready,  // BRAM için hep 1, SDRAM eklenince gerçek sinyale bağlanacak çünkü gecikme falan var protokolden kaynaklı
+    input  wire        memory_ready,
+    input  wire        execute_ready,
     output reg  [2:0]  state
 );
     localparam FETCH     = 3'd0;
@@ -198,7 +199,7 @@ module control_unit (
             case (state)
                 FETCH:     state <= memory_ready ? DECODE    : FETCH;
                 DECODE:    state <= EXECUTE;
-                EXECUTE:   state <= MEMORY;
+                EXECUTE:   state <= execute_ready ? MEMORY   : EXECUTE;
                 MEMORY:    state <= memory_ready ? WRITEBACK : MEMORY;
                 WRITEBACK: state <= FETCH;
                 default:   state <= FETCH;
@@ -419,9 +420,13 @@ module cpu_core (
     // ============================================================
     //                    CONTROL UNIT
     // ============================================================
+    // TODO: wire execute_ready = is_div_op ? div_done : is_mul_op ? mul_done : ... : 1'b1;
+    wire execute_ready = 1'b1;
+
     control_unit my_ctrl (
         .clk(clk), .rst(rst),
         .memory_ready(1'b1),
+        .execute_ready(execute_ready),
         .state(state)
     );
 
