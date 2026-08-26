@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Tang Nano 20K (GW2AR-18C) build + FLASH script
+# Always operates on the repo root regardless of where it's invoked from.
 
 set -euo pipefail
+cd "$(dirname "$0")/.."
 
 OSS_CAD_ENV="/home/isa/oss-cad-suite/environment"
 if ! command -v nextpnr-himbaechel &>/dev/null; then
@@ -14,9 +16,9 @@ if ! command -v nextpnr-himbaechel &>/dev/null; then
     fi
 fi
 
-VERILOG_FILE="${1:-main.v}"
+VERILOG_FILE="${1:-src/main.v}"
 TOP_MODULE="${2:-top}"
-CST_FILE="${3:-tangnano20k.cst}"
+CST_FILE="${3:-src/tangnano20k.cst}"
 
 DEVICE="GW2AR-LV18QN88C8/I7"
 FAMILY_SYNTH="gw2a"
