@@ -149,10 +149,10 @@ module unified_memory (
     input  wire [31:0] write_data,
     output reg  [31:0] read_data
 );
-    (* ram_style = "block" *) reg [31:0] mem [0:24575]; // 96KB, komut + veri
+    (* ram_style = "block" *) reg [31:0] mem [0:22527]; // 88KB, komut + veri
 
     initial begin
-        $readmemh("prog.hex", mem);
+        $readmemh("build/prog.hex", mem);
     end
 
     always @(posedge clk) begin
