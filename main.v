@@ -42,8 +42,7 @@ module mem_decoder (
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
     output wire [31:0] read_data,
-    output wire [5:0]  led,
-    input  wire        button
+    inout  wire [34:0] gpio
 );
     wire [3:0] region = addr[31:28];
 
@@ -69,39 +68,77 @@ module mem_decoder (
         .addr(addr),
         .write_data(write_data),
         .read_data(gpio_read_data),
-        .led(led),
-        .button(button)
+        .gpio(gpio)
     );
 
     assign read_data = gpio_sel ? gpio_read_data : bram_read_data;
 endmodule
 
+// Generic 35-pin memory-mapped GPIO. See fpga_gpio.md for the full pin table.
+// Register map (offsets within region 0x1, e.g. base 0x10000000):
+//   0x00 DIR_LO  [31:0] pins 0-31, 1=output 0=input (reset: all input)
+//   0x04 DIR_HI  [2:0]  pins 32-34
+//   0x08 OUT_LO  [31:0] pins 0-31 output latch (meaningful only if DIR=1)
+//   0x0C OUT_HI  [2:0]  pins 32-34 output latch
+//   0x10 IN_LO   [31:0] pins 0-31 live input level (read-only)
+//   0x14 IN_HI   [2:0]  pins 32-34 live input level (read-only)
 module gpio_ctrl (
     input  wire        clk,
     input  wire        we,
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
     output reg  [31:0] read_data,
-    output wire [5:0]  led,
-    input  wire        button
+    inout  wire [34:0] gpio
 );
-    reg [5:0] led_reg;
+    // pins 0-5 (onboard LEDs) are wired active-low on this board; every
+    // other pin is passed through as-is.
+    localparam [34:0] ACTIVE_LOW_MASK = 35'b0_0000_0000_0000_0000_0000_0000_0011_1111;
+
+    localparam OFF_DIR_LO = 8'h00;
+    localparam OFF_DIR_HI = 8'h04;
+    localparam OFF_OUT_LO = 8'h08;
+    localparam OFF_OUT_HI = 8'h0C;
+    localparam OFF_IN_LO  = 8'h10;
+    localparam OFF_IN_HI  = 8'h14;
+
+    reg [34:0] dir;      // 1 = output
+    reg [34:0] out_reg;
+    reg [34:0] in_sync;
+
+    genvar i;
+    generate
+        for (i = 0; i < 35; i = i + 1) begin : gpio_io
+            assign gpio[i] = dir[i] ? (out_reg[i] ^ ACTIVE_LOW_MASK[i]) : 1'bz;
+        end
+    endgenerate
 
     always @(posedge clk) begin
-        if (we && addr[7:0] == 8'h00)
-            led_reg <= write_data[5:0];
+        in_sync <= gpio ^ ACTIVE_LOW_MASK;
     end
 
     always @(posedge clk) begin
-        if (addr[7:0] == 8'h00)
-            read_data <= {26'b0, led_reg};
-        else if (addr[7:0] == 8'h04)
-            read_data <= {31'b0, button};
-        else
-            read_data <= 32'b0;
+        if (we) begin
+            case (addr[7:0])
+                OFF_DIR_LO: dir[31:0]      <= write_data;
+                OFF_DIR_HI: dir[34:32]     <= write_data[2:0];
+                OFF_OUT_LO: out_reg[31:0]  <= write_data;
+                OFF_OUT_HI: out_reg[34:32] <= write_data[2:0];
+                default: ;
+            endcase
+        end
     end
 
-    assign led = ~led_reg; // active-low
+    always @(posedge clk) begin
+        case (addr[7:0])
+            OFF_DIR_LO: read_data <= dir[31:0];
+            OFF_DIR_HI: read_data <= {29'b0, dir[34:32]};
+            OFF_OUT_LO: read_data <= out_reg[31:0];
+            OFF_OUT_HI: read_data <= {29'b0, out_reg[34:32]};
+            OFF_IN_LO:  read_data <= in_sync[31:0];
+            OFF_IN_HI:  read_data <= {29'b0, in_sync[34:32]};
+            default:    read_data <= 32'b0;
+        endcase
+    end
 endmodule
 
 module unified_memory (
@@ -360,8 +397,7 @@ endmodule
 module cpu_core (
     input  wire        clk,
     input  wire        rst,
-    output wire [5:0]  led,
-    input  wire        button
+    inout  wire [34:0] gpio
 );
     // ============================================================
     //                         ALL WIRES
@@ -522,8 +558,7 @@ module cpu_core (
         .addr(mem_addr),
         .write_data(mem_store_data),
         .read_data(mem_data_out),
-        .led(led),
-        .button(button)
+        .gpio(gpio)
     );
 
     // ============================================================
@@ -576,17 +611,15 @@ endmodule
 
 
 module top (
-    input  wire       clk,
-    input  wire       rst_n,      // S1 button
-    input  wire       button,     // S2 button
-    output wire [5:0] led         // 6 LED
+    input  wire        clk,
+    input  wire        rst_n,      // S1 button, dedicated hw reset - not memory-mapped
+    inout  wire [34:0] gpio
 );
     wire rst = rst_n; // NOTE: S1 butonu bu kartta ters calisiyor, ~rst_n degil rst_n dogru polarite
 
     cpu_core u_cpu (
         .clk(clk),
         .rst(rst),
-        .led(led),
-        .button(button)
+        .gpio(gpio)
     );
 endmodule
