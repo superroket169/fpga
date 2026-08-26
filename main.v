@@ -42,7 +42,7 @@ module mem_decoder (
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
     output wire [31:0] read_data,
-    inout  wire [34:0] gpio
+    inout  wire [36:0] gpio
 );
     wire [3:0] region = addr[31:28];
 
@@ -74,25 +74,25 @@ module mem_decoder (
     assign read_data = gpio_sel ? gpio_read_data : bram_read_data;
 endmodule
 
-// Generic 35-pin memory-mapped GPIO. See fpga_gpio.md for the full pin table.
+// Generic 37-pin memory-mapped GPIO. See fpga_gpio.md for the full pin table.
 // Register map (offsets within region 0x1, e.g. base 0x10000000):
 //   0x00 DIR_LO  [31:0] pins 0-31, 1=output 0=input (reset: all input)
-//   0x04 DIR_HI  [2:0]  pins 32-34
+//   0x04 DIR_HI  [4:0]  pins 32-36
 //   0x08 OUT_LO  [31:0] pins 0-31 output latch (meaningful only if DIR=1)
-//   0x0C OUT_HI  [2:0]  pins 32-34 output latch
+//   0x0C OUT_HI  [4:0]  pins 32-36 output latch
 //   0x10 IN_LO   [31:0] pins 0-31 live input level (read-only)
-//   0x14 IN_HI   [2:0]  pins 32-34 live input level (read-only)
+//   0x14 IN_HI   [4:0]  pins 32-36 live input level (read-only)
 module gpio_ctrl (
     input  wire        clk,
     input  wire        we,
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
     output reg  [31:0] read_data,
-    inout  wire [34:0] gpio
+    inout  wire [36:0] gpio
 );
     // pins 0-5 (onboard LEDs) are wired active-low on this board; every
     // other pin is passed through as-is.
-    localparam [34:0] ACTIVE_LOW_MASK = 35'b0_0000_0000_0000_0000_0000_0000_0011_1111;
+    localparam [36:0] ACTIVE_LOW_MASK = 37'b0_00000_0000_0000_0000_0000_0000_0000_111111;
 
     localparam OFF_DIR_LO = 8'h00;
     localparam OFF_DIR_HI = 8'h04;
@@ -101,13 +101,13 @@ module gpio_ctrl (
     localparam OFF_IN_LO  = 8'h10;
     localparam OFF_IN_HI  = 8'h14;
 
-    reg [34:0] dir;      // 1 = output
-    reg [34:0] out_reg;
-    reg [34:0] in_sync;
+    reg [36:0] dir;      // 1 = output
+    reg [36:0] out_reg;
+    reg [36:0] in_sync;
 
     genvar i;
     generate
-        for (i = 0; i < 35; i = i + 1) begin : gpio_io
+        for (i = 0; i < 37; i = i + 1) begin : gpio_io
             assign gpio[i] = dir[i] ? (out_reg[i] ^ ACTIVE_LOW_MASK[i]) : 1'bz;
         end
     endgenerate
@@ -120,9 +120,9 @@ module gpio_ctrl (
         if (we) begin
             case (addr[7:0])
                 OFF_DIR_LO: dir[31:0]      <= write_data;
-                OFF_DIR_HI: dir[34:32]     <= write_data[2:0];
+                OFF_DIR_HI: dir[36:32]     <= write_data[4:0];
                 OFF_OUT_LO: out_reg[31:0]  <= write_data;
-                OFF_OUT_HI: out_reg[34:32] <= write_data[2:0];
+                OFF_OUT_HI: out_reg[36:32] <= write_data[4:0];
                 default: ;
             endcase
         end
@@ -131,11 +131,11 @@ module gpio_ctrl (
     always @(posedge clk) begin
         case (addr[7:0])
             OFF_DIR_LO: read_data <= dir[31:0];
-            OFF_DIR_HI: read_data <= {29'b0, dir[34:32]};
+            OFF_DIR_HI: read_data <= {27'b0, dir[36:32]};
             OFF_OUT_LO: read_data <= out_reg[31:0];
-            OFF_OUT_HI: read_data <= {29'b0, out_reg[34:32]};
+            OFF_OUT_HI: read_data <= {27'b0, out_reg[36:32]};
             OFF_IN_LO:  read_data <= in_sync[31:0];
-            OFF_IN_HI:  read_data <= {29'b0, in_sync[34:32]};
+            OFF_IN_HI:  read_data <= {27'b0, in_sync[36:32]};
             default:    read_data <= 32'b0;
         endcase
     end
@@ -149,7 +149,7 @@ module unified_memory (
     input  wire [31:0] write_data,
     output reg  [31:0] read_data
 );
-    (* ram_style = "block" *) reg [31:0] mem [0:4095]; // 16KB, komut + veri
+    (* ram_style = "block" *) reg [31:0] mem [0:24575]; // 96KB, komut + veri
 
     initial begin
         $readmemh("prog.hex", mem);
@@ -157,12 +157,12 @@ module unified_memory (
 
     always @(posedge clk) begin
         if (we) begin
-            if (wstrb[0]) mem[addr[13:2]][7:0]   <= write_data[7:0];
-            if (wstrb[1]) mem[addr[13:2]][15:8]  <= write_data[15:8];
-            if (wstrb[2]) mem[addr[13:2]][23:16] <= write_data[23:16];
-            if (wstrb[3]) mem[addr[13:2]][31:24] <= write_data[31:24];
+            if (wstrb[0]) mem[addr[16:2]][7:0]   <= write_data[7:0];
+            if (wstrb[1]) mem[addr[16:2]][15:8]  <= write_data[15:8];
+            if (wstrb[2]) mem[addr[16:2]][23:16] <= write_data[23:16];
+            if (wstrb[3]) mem[addr[16:2]][31:24] <= write_data[31:24];
         end
-        read_data <= mem[addr[13:2]];
+        read_data <= mem[addr[16:2]];
     end
 endmodule
 
@@ -397,7 +397,7 @@ endmodule
 module cpu_core (
     input  wire        clk,
     input  wire        rst,
-    inout  wire [34:0] gpio
+    inout  wire [36:0] gpio
 );
     // ============================================================
     //                         ALL WIRES
@@ -613,7 +613,7 @@ endmodule
 module top (
     input  wire        clk,
     input  wire        rst_n,      // S1 button, dedicated hw reset - not memory-mapped
-    inout  wire [34:0] gpio
+    inout  wire [36:0] gpio
 );
     wire rst = rst_n; // NOTE: S1 butonu bu kartta ters calisiyor, ~rst_n degil rst_n dogru polarite
 
