@@ -1,14 +1,1 @@
 build/
-*.fs
-*.json
-!*.pnr.json.example
-abc.history
-
-*.vcd
-*.vvp
-
-prog.elf
-prog.hex
-prog.o
-
-cpu_sim
