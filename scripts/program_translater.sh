@@ -25,7 +25,7 @@ HEX_FILE="${BUILD_DIR}/${OUT_NAME}.hex"
 BIN_FILE="${BUILD_DIR}/${OUT_NAME}.bin"
 
 riscv32-elf-as -march=rv32i -mabi=ilp32 -o "$O_FILE" "$ASM_FILE"
-riscv32-elf-ld -Ttext="$TEXT_ADDR" -o "$ELF_FILE" "$O_FILE"
+riscv32-elf-ld -T src/link.ld --defsym=ORIGIN_ADDR="$TEXT_ADDR" -o "$ELF_FILE" "$O_FILE"
 riscv32-elf-objcopy -O verilog --verilog-data-width=4 "$ELF_FILE" "$HEX_FILE"
 riscv32-elf-objcopy -O binary "$ELF_FILE" "$BIN_FILE"
 
