@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Assembles an RV32I .s file into build/<name>.{o,elf,hex,bin}.
 #
-# Usage: scripts/program_translater.sh [asm_file] [output_name] [text_addr]
-#   asm_file    - default: src/prog.s   (the UART bootloader)
-#   output_name - default: prog         (output basename under build/)
+# Usage: scripts/program_translater.sh <asm_file> [output_name] [text_addr]
+#   asm_file    - the .s source to assemble (examples/ holds these now)
+#   output_name - default: the .s file's basename (output under build/)
 #   text_addr   - default: 0x0          (link address; use 0x400 for a
 #                 program meant to be loaded via the UART bootloader)
 #
@@ -12,8 +12,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ASM_FILE="${1:-src/prog.s}"
-OUT_NAME="${2:-prog}"
+ASM_FILE="${1:?usage: program_translater.sh <asm_file> [output_name] [text_addr]}"
+OUT_NAME="${2:-$(basename "$ASM_FILE" .s)}"
 TEXT_ADDR="${3:-0x0}"
 
 BUILD_DIR="build"
