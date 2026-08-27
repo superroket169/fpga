@@ -47,7 +47,7 @@ def main():
         # let the board settle after the port opens (DTR toggles can pulse
         # reset on some USB-serial bridges) before the bootloader's first
         # sample window
-        
+
         time.sleep(0.2)
         ser.write(frame)
         ser.flush()
