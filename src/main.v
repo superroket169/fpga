@@ -42,16 +42,24 @@ module mem_decoder (
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
     output wire [31:0] read_data,
-    inout  wire [36:0] gpio
+    inout  wire [32:0] gpio,
+    output wire        uart0_tx,
+    input  wire        uart0_rx,
+    output wire        uart1_tx,
+    input  wire        uart1_rx
 );
     wire [3:0] region = addr[31:28];
 
-    wire        bram_sel = (region == 4'h0);
-    wire        gpio_sel = (region == 4'h1);
-    // flash_sel, sd_sel, sdram_sel...
+    wire        bram_sel  = (region == 4'h0);
+    wire        gpio_sel  = (region == 4'h1);
+    wire        uart0_sel = (region == 4'h2);
+    wire        uart1_sel = (region == 4'h3);
+    // spi_sel, i2c_sel, pwm_sel, intc_sel...
 
     wire [31:0] bram_read_data;
     wire [31:0] gpio_read_data;
+    wire [31:0] uart0_read_data;
+    wire [31:0] uart1_read_data;
 
     unified_memory u_bram (
         .clk(clk),
@@ -71,28 +79,51 @@ module mem_decoder (
         .gpio(gpio)
     );
 
-    assign read_data = gpio_sel ? gpio_read_data : bram_read_data;
+    uart_core u_uart0 (
+        .clk(clk),
+        .we(we && uart0_sel),
+        .sel(uart0_sel),
+        .addr(addr[7:0]),
+        .write_data(write_data),
+        .read_data(uart0_read_data),
+        .tx(uart0_tx),
+        .rx(uart0_rx)
+    );
+
+    uart_core u_uart1 (
+        .clk(clk),
+        .we(we && uart1_sel),
+        .sel(uart1_sel),
+        .addr(addr[7:0]),
+        .write_data(write_data),
+        .read_data(uart1_read_data),
+        .tx(uart1_tx),
+        .rx(uart1_rx)
+    );
+
+    assign read_data = gpio_sel  ? gpio_read_data  :
+                        uart0_sel ? uart0_read_data :
+                        uart1_sel ? uart1_read_data :
+                                    bram_read_data;
 endmodule
 
-// Generic 37-pin memory-mapped GPIO. See fpga_gpio.md for the full pin table.
-// Register map (offsets within region 0x1, e.g. base 0x10000000):
 //   0x00 DIR_LO  [31:0] pins 0-31, 1=output 0=input (reset: all input)
-//   0x04 DIR_HI  [4:0]  pins 32-36
+//   0x04 DIR_HI  [0]    pin 32
 //   0x08 OUT_LO  [31:0] pins 0-31 output latch (meaningful only if DIR=1)
-//   0x0C OUT_HI  [4:0]  pins 32-36 output latch
+//   0x0C OUT_HI  [0]    pin 32 output latch
 //   0x10 IN_LO   [31:0] pins 0-31 live input level (read-only)
-//   0x14 IN_HI   [4:0]  pins 32-36 live input level (read-only)
+//   0x14 IN_HI   [0]    pin 32 live input level (read-only)
 module gpio_ctrl (
     input  wire        clk,
     input  wire        we,
     input  wire [31:0] addr,
     input  wire [31:0] write_data,
     output reg  [31:0] read_data,
-    inout  wire [36:0] gpio
+    inout  wire [32:0] gpio
 );
     // pins 0-5 (onboard LEDs) are wired active-low on this board; every
     // other pin is passed through as-is.
-    localparam [36:0] ACTIVE_LOW_MASK = 37'b0_00000_0000_0000_0000_0000_0000_0000_111111;
+    localparam [32:0] ACTIVE_LOW_MASK = {27'b0, 6'b111111};
 
     localparam OFF_DIR_LO = 8'h00;
     localparam OFF_DIR_HI = 8'h04;
@@ -101,13 +132,13 @@ module gpio_ctrl (
     localparam OFF_IN_LO  = 8'h10;
     localparam OFF_IN_HI  = 8'h14;
 
-    reg [36:0] dir;      // 1 = output
-    reg [36:0] out_reg;
-    reg [36:0] in_sync;
+    reg [32:0] dir;      // 1 = output
+    reg [32:0] out_reg;
+    reg [32:0] in_sync;
 
     genvar i;
     generate
-        for (i = 0; i < 37; i = i + 1) begin : gpio_io
+        for (i = 0; i < 33; i = i + 1) begin : gpio_io
             assign gpio[i] = dir[i] ? (out_reg[i] ^ ACTIVE_LOW_MASK[i]) : 1'bz;
         end
     endgenerate
@@ -119,10 +150,10 @@ module gpio_ctrl (
     always @(posedge clk) begin
         if (we) begin
             case (addr[7:0])
-                OFF_DIR_LO: dir[31:0]      <= write_data;
-                OFF_DIR_HI: dir[36:32]     <= write_data[4:0];
-                OFF_OUT_LO: out_reg[31:0]  <= write_data;
-                OFF_OUT_HI: out_reg[36:32] <= write_data[4:0];
+                OFF_DIR_LO: dir[31:0]     <= write_data;
+                OFF_DIR_HI: dir[32]       <= write_data[0];
+                OFF_OUT_LO: out_reg[31:0] <= write_data;
+                OFF_OUT_HI: out_reg[32]   <= write_data[0];
                 default: ;
             endcase
         end
@@ -131,11 +162,183 @@ module gpio_ctrl (
     always @(posedge clk) begin
         case (addr[7:0])
             OFF_DIR_LO: read_data <= dir[31:0];
-            OFF_DIR_HI: read_data <= {27'b0, dir[36:32]};
+            OFF_DIR_HI: read_data <= {31'b0, dir[32]};
             OFF_OUT_LO: read_data <= out_reg[31:0];
-            OFF_OUT_HI: read_data <= {27'b0, out_reg[36:32]};
+            OFF_OUT_HI: read_data <= {31'b0, out_reg[32]};
             OFF_IN_LO:  read_data <= in_sync[31:0];
-            OFF_IN_HI:  read_data <= {27'b0, in_sync[36:32]};
+            OFF_IN_HI:  read_data <= {31'b0, in_sync[32]};
+            default:    read_data <= 32'b0;
+        endcase
+    end
+endmodule
+
+//   0x00 TXDATA (write) - byte to send; ignored while STATUS.TX_BUSY is set
+//   0x04 RXDATA (read)  - last received byte; clears STATUS.RX_VALID/OVERRUN
+//   0x08 STATUS (read)  - bit0 TX_BUSY, bit1 RX_VALID, bit2 RX_OVERRUN
+//
+// No FIFO and no interrupt line yet - RX_VALID is just a status bit for
+// now, software polls it. The interrupt controller step wires it up later.
+module uart_core #(
+    parameter CLK_FREQ = 27_000_000,
+    parameter BAUD     = 115_200
+) (
+    input  wire       clk,
+    input  wire       we,
+    input  wire       sel,
+    
+    input  wire [7:0] addr,
+    input  wire [31:0] write_data,
+    output reg  [31:0] read_data,
+    output wire        tx,
+    input  wire        rx
+);
+    localparam DIVISOR      = CLK_FREQ / BAUD;
+    localparam HALF_DIVISOR = DIVISOR / 2;
+
+    localparam OFF_TXDATA = 8'h00;
+    localparam OFF_RXDATA = 8'h04;
+    localparam OFF_STATUS = 8'h08;
+
+    // ---- TX ----
+    localparam TX_IDLE = 2'd0, TX_START = 2'd1, TX_DATA = 2'd2, TX_STOP = 2'd3;
+
+    reg [1:0]  tx_state = TX_IDLE;
+    reg [7:0]  tx_shift;
+    reg [2:0]  tx_bit_idx;
+    reg [15:0] tx_count;
+    reg        tx_line = 1'b1;
+
+    wire tx_busy  = (tx_state != TX_IDLE);
+    wire tx_start = we && (addr == OFF_TXDATA) && !tx_busy;
+
+    assign tx = tx_line;
+
+    always @(posedge clk) begin
+        case (tx_state)
+            TX_IDLE: begin
+                tx_line <= 1'b1;
+                if (tx_start) begin
+                    tx_shift   <= write_data[7:0];
+                    tx_count   <= 16'd0;
+                    tx_bit_idx <= 3'd0;
+                    tx_state   <= TX_START;
+                end
+            end
+
+            TX_START: begin
+                tx_line <= 1'b0;
+                if (tx_count == DIVISOR - 1) begin
+                    tx_count <= 16'd0;
+                    tx_state <= TX_DATA;
+                end else begin
+                    tx_count <= tx_count + 16'd1;
+                end
+            end
+
+            TX_DATA: begin
+                tx_line <= tx_shift[tx_bit_idx];
+                if (tx_count == DIVISOR - 1) begin
+                    tx_count <= 16'd0;
+                    if (tx_bit_idx == 3'd7)
+                        tx_state <= TX_STOP;
+                    else
+                        tx_bit_idx <= tx_bit_idx + 3'd1;
+                end else begin
+                    tx_count <= tx_count + 16'd1;
+                end
+            end
+
+            TX_STOP: begin
+                tx_line <= 1'b1;
+                if (tx_count == DIVISOR - 1) begin
+                    tx_count <= 16'd0;
+                    tx_state <= TX_IDLE;
+                end else begin
+                    tx_count <= tx_count + 16'd1;
+                end
+            end
+
+            default: tx_state <= TX_IDLE;
+        endcase
+    end
+
+    // ---- RX ----
+    reg rx_meta = 1'b1, rx_sync = 1'b1, rx_prev = 1'b1;
+    always @(posedge clk) begin
+        rx_meta <= rx;
+        rx_sync <= rx_meta;
+        rx_prev <= rx_sync;
+    end
+
+    localparam RX_IDLE = 2'd0, RX_START = 2'd1, RX_DATA = 2'd2, RX_STOP = 2'd3;
+
+    reg [1:0]  rx_state = RX_IDLE;
+    reg [7:0]  rx_shift;
+    reg [2:0]  rx_bit_idx;
+    reg [15:0] rx_count;
+    reg [7:0]  rx_data;
+    reg        rx_valid   = 1'b0;
+    reg        rx_overrun = 1'b0;
+
+    wire rxdata_read = sel && (addr == OFF_RXDATA);
+
+    always @(posedge clk) begin
+        if (rxdata_read) begin
+            rx_valid   <= 1'b0;
+            rx_overrun <= 1'b0;
+        end
+
+        case (rx_state)
+            RX_IDLE: begin
+                if (rx_prev && !rx_sync) begin // falling edge = start bit
+                    rx_count <= 16'd0;
+                    rx_state <= RX_START;
+                end
+            end
+
+            RX_START: begin // wait out the first half-bit, land mid start-bit
+                if (rx_count == HALF_DIVISOR - 1) begin
+                    rx_count   <= 16'd0;
+                    rx_bit_idx <= 3'd0;
+                    rx_state   <= RX_DATA;
+                end else begin
+                    rx_count <= rx_count + 16'd1;
+                end
+            end
+
+            RX_DATA: begin // sample mid-bit, LSB first
+                if (rx_count == DIVISOR - 1) begin
+                    rx_shift[rx_bit_idx] <= rx_sync;
+                    rx_count <= 16'd0;
+                    if (rx_bit_idx == 3'd7)
+                        rx_state <= RX_STOP;
+                    else
+                        rx_bit_idx <= rx_bit_idx + 3'd1;
+                end else begin
+                    rx_count <= rx_count + 16'd1;
+                end
+            end
+
+            RX_STOP: begin // ride out the stop bit, then publish the byte
+                if (rx_count == DIVISOR - 1) begin
+                    rx_data    <= rx_shift;
+                    rx_overrun <= rx_valid && !rxdata_read;
+                    rx_valid   <= 1'b1;
+                    rx_count   <= 16'd0;
+                    rx_state   <= RX_IDLE;
+                end else begin
+                    rx_count <= rx_count + 16'd1;
+                end
+            end
+
+            default: rx_state <= RX_IDLE;
+        endcase
+    end
+
+    always @(posedge clk) begin
+        case (addr)
+            OFF_RXDATA: read_data <= {24'b0, rx_data};
+            OFF_STATUS: read_data <= {29'b0, rx_overrun, rx_valid, tx_busy};
             default:    read_data <= 32'b0;
         endcase
     end
@@ -397,7 +600,11 @@ endmodule
 module cpu_core (
     input  wire        clk,
     input  wire        rst,
-    inout  wire [36:0] gpio
+    inout  wire [32:0] gpio,
+    output wire        uart0_tx,
+    input  wire        uart0_rx,
+    output wire        uart1_tx,
+    input  wire        uart1_rx
 );
     // ============================================================
     //                         ALL WIRES
@@ -558,7 +765,11 @@ module cpu_core (
         .addr(mem_addr),
         .write_data(mem_store_data),
         .read_data(mem_data_out),
-        .gpio(gpio)
+        .gpio(gpio),
+        .uart0_tx(uart0_tx),
+        .uart0_rx(uart0_rx),
+        .uart1_tx(uart1_tx),
+        .uart1_rx(uart1_rx)
     );
 
     // ============================================================
@@ -613,13 +824,21 @@ endmodule
 module top (
     input  wire        clk,
     input  wire        rst_n,      // S1 button, dedicated hw reset - not memory-mapped
-    inout  wire [36:0] gpio
+    inout  wire [32:0] gpio,
+    output wire        uart0_tx,
+    input  wire        uart0_rx,
+    output wire        uart1_tx,
+    input  wire        uart1_rx
 );
     wire rst = rst_n; // NOTE: S1 butonu bu kartta ters calisiyor, ~rst_n degil rst_n dogru polarite
 
     cpu_core u_cpu (
         .clk(clk),
         .rst(rst),
-        .gpio(gpio)
+        .gpio(gpio),
+        .uart0_tx(uart0_tx),
+        .uart0_rx(uart0_rx),
+        .uart1_tx(uart1_tx),
+        .uart1_rx(uart1_rx)
     );
 endmodule
