@@ -185,7 +185,7 @@ module uart_core #(
     input  wire       clk,
     input  wire       we,
     input  wire       sel,
-    
+
     input  wire [7:0] addr,
     input  wire [31:0] write_data,
     output reg  [31:0] read_data,

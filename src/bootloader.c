@@ -1,33 +1,32 @@
 /* UART bootloader. Lives at BRAM address 0, runs on every reset.
  *
  * Frame: [4-byte LE length][payload][1-byte checksum = sum(payload) mod 256]
- * Loads payload at 0x400 then jumps there. No return channel to the PC -
- * LEDs (idx0-5) show status: LED0=waiting, LED0+1=receiving,
- * flash once=jumping to program, blink forever=bad frame.
+ * Loads payload at 0x400 then jumps there. PC only transmits - the
+ * bootloader doesn't send anything back over UART0, LEDs (idx0-5) show
+ * status instead: LED0=waiting, LED0+1=receiving, flash once=jumping to
+ * program, blink forever=bad frame.
  *
- * See docs/fpga_gpio.md for pins, scripts/c_compiler.sh for the build.
+ * See docs/fpga_gpio.md for the UART0 register map, scripts/c_compiler.sh
+ * for the build.
  */
 
 #define GPIO_BASE   0x10000000u
 #define GPIO_DIR_LO (*(volatile unsigned int *)(GPIO_BASE + 0x00))
-#define GPIO_DIR_HI (*(volatile unsigned int *)(GPIO_BASE + 0x04))
 #define GPIO_OUT_LO (*(volatile unsigned int *)(GPIO_BASE + 0x08))
-#define GPIO_IN_HI  (*(volatile unsigned int *)(GPIO_BASE + 0x14))
 
-#define RX_BIT       (1u << 4)   /* idx36 (RX) = bit4 of the high word */
+#define UART0_BASE     0x20000000u
+#define UART0_RXDATA   (*(volatile unsigned int *)(UART0_BASE + 0x04))
+#define UART0_STATUS   (*(volatile unsigned int *)(UART0_BASE + 0x08))
+#define UART0_RX_VALID (1u << 1)
+
 #define PROGRAM_ADDR 0x400u      /* where a loaded program starts */
 #define STACK_TOP    0x16000u    /* top of the 88KB BRAM (used by _reset) */
 #define MAX_PAYLOAD  88576u      /* 0x15800: 1KB headroom below STACK_TOP,
                                      so a max-size payload can't grow into
                                      the bootloader's own stack while receiving */
 
-/* 9600 baud @ 27MHz = ~2812 cycles/bit. BIT_DELAY_ITERS/HALF_BIT_ITERS
- * are calibrated for -O1 exactly (see scripts/c_compiler.sh) - a different
- * optimization level changes delay()'s instruction count and breaks timing. */
-#define BIT_DELAY_ITERS 109u
-#define HALF_BIT_ITERS  54u
-#define FLASH_ITERS     500000u
-#define BLINK_ITERS     1000000u
+#define FLASH_ITERS  500000u
+#define BLINK_ITERS  1000000u
 
 typedef void (*entry_fn)(void);
 
@@ -48,7 +47,6 @@ void _reset(void) {
 
 void main(void) {
     GPIO_DIR_LO = 0x3F; /* LEDs (idx0-5) = output */
-    GPIO_DIR_HI = 0x00; /* everything else, incl. RX/TX, stays input */
 
     GPIO_OUT_LO = 0x01; /* waiting for the length header */
 
@@ -96,22 +94,6 @@ static void delay(unsigned int iters) {
 }
 
 static unsigned char recv_byte(void) {
-    unsigned int byte = 0;
-
-    /* make sure we start from an idle-high line, then wait for the
-     * falling edge (start bit) */
-    while ((GPIO_IN_HI & RX_BIT) == 0) { }
-    while ((GPIO_IN_HI & RX_BIT) != 0) { }
-
-    delay(HALF_BIT_ITERS); /* land in the middle of the start bit */
-
-    for (int i = 0; i < 8; i++) {
-        delay(BIT_DELAY_ITERS); /* advance to the middle of the next bit */
-        if (GPIO_IN_HI & RX_BIT) {
-            byte |= (1u << i); /* LSB first */
-        }
-    }
-
-    delay(BIT_DELAY_ITERS); /* ride out the stop bit */
-    return (unsigned char)byte;
+    while (!(UART0_STATUS & UART0_RX_VALID)) { }
+    return (unsigned char)UART0_RXDATA;
 }

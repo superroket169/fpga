@@ -72,14 +72,13 @@ IO_LOC "gpio[31]" 72;
 IO_PORT "gpio[31]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 IO_LOC "gpio[32]" 71;
 IO_PORT "gpio[32]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
-IO_LOC "gpio[33]" 53;
-IO_PORT "gpio[33]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
-IO_LOC "gpio[34]" 52;
-IO_PORT "gpio[34]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+// uart0 = PC link, onboard BL616 USB-UART bridge (same Type-C used to flash the board)
+IO_LOC "uart0_tx" 69;
+IO_PORT "uart0_tx" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC "uart0_rx" 70;
+IO_PORT "uart0_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
-// gpio[35]/gpio[36] = onboard BL616 USB-UART bridge (same Type-C used to
-// flash the board). Reserved for the UART bootloader.
-IO_LOC "gpio[35]" 69;
-IO_PORT "gpio[35]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
-IO_LOC "gpio[36]" 70;
-IO_PORT "gpio[36]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC "uart1_tx" 53;
+IO_PORT "uart1_tx" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+IO_LOC "uart1_rx" 52;
+IO_PORT "uart1_rx" IO_TYPE=LVCMOS33 PULL_MODE=UP;

@@ -22,7 +22,7 @@ import time
 
 import serial  # pip install pyserial
 
-DEFAULT_BAUD = 9600
+DEFAULT_BAUD = 115200
 
 
 def main():
