@@ -27,8 +27,7 @@ rather than an arbitrary offset within a region.
 ## GPIO registers (base `0x10000000`)
 
 33 pins, indexed 0-32, split across a low word (pins 0-31) and a high word
-(pin 32 only - pins 33-36 used to live here too, now dedicated to UART0/
-UART1 below).
+(pin 32 only).
 
 | offset | name    | bits   | meaning                                         |
 |--------|---------|--------|---------------------------------------------------|
@@ -108,9 +107,8 @@ Physical pin numbers are FPGA ball numbers (as used in `tangnano20k.cst`
 | 31  | 72  | free                                       |
 | 32  | 71  | free                                       |
 
-Pins 33-36 (physical 53/52/69/70) used to be generic GPIO but are now
-dedicated to UART0/UART1 - see the table below and the UART registers
-section above.
+Physical pins 53/52/69/70 are not in the GPIO bus - they are dedicated to
+UART0/UART1, see the table below and the UART registers section above.
 
 ## Pins NOT in the GPIO bus (dedicated, do not repurpose)
 

@@ -19,8 +19,7 @@
 #define SCK_BIT   (1u << 11) /* idx11 */
 #define MOSI_BIT  (1u << 12) /* idx12 */
 
-/* Not calibrated like the UART bit timing in bootloader.c - just a rough
- * guess for ~1/15s. Raise/lower after watching it play once. */
+/* Not calibrated - just a rough guess for ~1/15s. Raise/lower after watching it play once. */
 #define FRAME_DELAY_ITERS 180000u
 
 static unsigned int out_shadow = 0;

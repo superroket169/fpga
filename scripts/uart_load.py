@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PC-side sender for the Tang Nano 20K UART bootloader (see prog.s).
+PC-side sender for the Tang Nano 20K UART bootloader (see src/bootloader.c).
 
 Sends a raw binary over the board's USB-UART bridge (BL616 - the same
 Type-C cable used to flash it) in the frame the bootloader expects:
@@ -9,7 +9,7 @@ Type-C cable used to flash it) in the frame the bootloader expects:
     checksum = (sum of all payload bytes) mod 256
 
 One-way: this never reads anything back, because the bootloader never
-drives TX. Watch the onboard LEDs instead - see the status table at the top of prog.s.
+drives TX. Watch the onboard LEDs instead - see the status table at the top of src/bootloader.c.
 
 Usage:
     python3 uart_load.py <port> <binary_file> [baud]
